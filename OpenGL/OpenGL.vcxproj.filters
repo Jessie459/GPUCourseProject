@@ -21,9 +21,6 @@
     <ClCompile Include="src\viewer.cpp">
       <Filter>源文件</Filter>
     </ClCompile>
-    <ClCompile Include="src\stb_image.cpp">
-      <Filter>源文件</Filter>
-    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <None Include="src\shaders\model.fs">
@@ -32,5 +29,10 @@
     <None Include="src\shaders\model.vs">
       <Filter>着色器文件</Filter>
     </None>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="src\vec3f.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
   </ItemGroup>
 </Project>

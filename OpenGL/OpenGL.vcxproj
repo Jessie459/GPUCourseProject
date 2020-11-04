@@ -20,12 +20,14 @@
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="src\glad.c" />
-    <ClCompile Include="src\stb_image.cpp" />
     <ClCompile Include="src\viewer.cpp" />
   </ItemGroup>
   <ItemGroup>
     <None Include="src\shaders\model.fs" />
     <None Include="src\shaders\model.vs" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="src\vec3f.h" />
   </ItemGroup>
   <PropertyGroup Label="Globals">
     <VCProjectVersion>16.0</VCProjectVersion>
