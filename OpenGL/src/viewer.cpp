@@ -10,6 +10,7 @@
 
 #include <iostream>
 #include <vector>
+#include <set>
 
 #include "vec3f.h"
 
@@ -252,8 +253,8 @@ int main()
 
     // read triangles from obj file
     // ----------------------------
-    const char* objFilePath = "E:/workspace/OpenGL/OpenGL/resources/two_spheres.obj";
-    // const char* objFilePath = "E:/GPU-cuda-course/flag-no-cd/0181_00.obj";
+    // const char* objFilePath = "E:/workspace/OpenGL/OpenGL/resources/two_spheres.obj";
+    const char* objFilePath = "E:/GPU-cuda-course/flag-no-cd/0181_00.obj";
     std::vector<float> vertices;
     std::vector<unsigned int> indices;
     if (!readObjFile(objFilePath, vertices, indices))
@@ -263,27 +264,14 @@ int main()
         return -1;
     }
 
-    unsigned int VBO, VAO, EBO;
-    glGenVertexArrays(1, &VAO);
-    glGenBuffers(1, &VBO);
-    glGenBuffers(1, &EBO);
-
-    glBindVertexArray(VAO);
-
-    glBindBuffer(GL_ARRAY_BUFFER, VBO);
-    glBufferData(GL_ARRAY_BUFFER, sizeof(float) * vertices.size(), &vertices[0], GL_STATIC_DRAW);
-
-    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBO);
-    glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(unsigned int) * indices.size(), &indices[0], GL_STATIC_DRAW);
-
-    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0);
-    glEnableVertexAttribArray(0);
-
     // collision detection on CPU
     // --------------------------
+    std::set<unsigned int> s;
     unsigned int count = 0;
     unsigned int numTriangles = indices.size() / 3;
-    for (unsigned int i = 0; i < numTriangles; i++)
+
+    #pragma omp parallel for
+    for (int i = 0; i < numTriangles; i++)
     {
         unsigned int i0 = indices[i * 3];
         unsigned int i1 = indices[i * 3 + 1];
@@ -293,7 +281,7 @@ int main()
         vec3f p1(vertices[i1 * 3], vertices[i1 * 3 + 1], vertices[i1 * 3 + 2]);
         vec3f p2(vertices[i2 * 3], vertices[i2 * 3 + 1], vertices[i2 * 3 + 2]);
 
-        for (unsigned int j = 0; j < numTriangles; j++)
+        for (int j = 0; j < numTriangles; j++)
         {
             if (i >= j)
                 continue;
@@ -314,10 +302,40 @@ int main()
             vec3f q2(vertices[j2 * 3], vertices[j2 * 3 + 1], vertices[j2 * 3 + 2]);
 
             if (collide(p0, p1, p2, q0, q1, q2))
+            {
+                s.insert(i);
+                s.insert(j);
                 ++count;
+            }
         }
     }
     std::cout << count << std::endl;
+
+    std::vector<unsigned int> indices2(s.size() * 3);
+    unsigned int idx = 0;
+    for (auto iter = s.begin(); iter != s.end(); iter++)
+    {
+        indices2[idx * 3 + 0] = indices[(*iter) * 3 + 0];
+        indices2[idx * 3 + 1] = indices[(*iter) * 3 + 1];
+        indices2[idx * 3 + 2] = indices[(*iter) * 3 + 2];
+        ++idx;
+    }
+
+    unsigned int VBO, VAO, EBO;
+    glGenVertexArrays(1, &VAO);
+    glGenBuffers(1, &VBO);
+    glGenBuffers(1, &EBO);
+
+    glBindVertexArray(VAO);
+
+    glBindBuffer(GL_ARRAY_BUFFER, VBO);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(float)* vertices.size(), &vertices[0], GL_STATIC_DRAW);
+
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBO);
+    glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(unsigned int)* indices2.size(), &indices2[0], GL_STATIC_DRAW);
+
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0);
+    glEnableVertexAttribArray(0);
 
     // render loop
     // -----------
@@ -347,7 +365,7 @@ int main()
         shader.setMat4("model", model);
 
         glBindVertexArray(VAO);
-        glDrawElements(GL_TRIANGLES, indices.size(), GL_UNSIGNED_INT, 0);
+        glDrawElements(GL_TRIANGLES, indices2.size(), GL_UNSIGNED_INT, 0);
 
         // glfw: swap buffers and poll IO events (keys pressed/released, mouse moved etc.)
         // -------------------------------------------------------------------------------
