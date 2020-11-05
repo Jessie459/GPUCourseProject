@@ -11,6 +11,10 @@
 #include <iostream>
 #include <vector>
 #include <set>
+#include <cmath>
+
+#include <thrust/host_vector.h>
+#include <thrust/device_vector.h>
 
 #include "vec3f.h"
 
@@ -22,7 +26,6 @@ bool readObjFile(const char* path, std::vector<float>& vertices, std::vector<uns
         return false;
 
     char buffer[1024];
-    unsigned int index = 0;
     while (fgets(buffer, 1024, stream))
     {
         if (buffer[0] == 'v' && buffer[1] == ' ') // vertices
@@ -72,6 +75,7 @@ bool readObjFile(const char* path, std::vector<float>& vertices, std::vector<uns
     return true;
 }
 
+__device__ __host__
 inline float fmax3(float a, float b, float c)
 {
     float t = a;
@@ -80,6 +84,7 @@ inline float fmax3(float a, float b, float c)
     return t;
 }
 
+__device__ __host__
 inline float fmin3(float a, float b, float c)
 {
     float t = a;
@@ -88,6 +93,7 @@ inline float fmin3(float a, float b, float c)
     return t;
 }
 
+__device__ __host__
 inline int project3(vec3f& ax,
                     vec3f& p1, vec3f& p2, vec3f& p3)
 {
@@ -103,6 +109,7 @@ inline int project3(vec3f& ax,
     return 1;
 }
 
+__device__ __host__
 inline int project6(vec3f& ax,
                     vec3f& p1, vec3f& p2, vec3f& p3,
                     vec3f& q1, vec3f& q2, vec3f& q3)
@@ -124,6 +131,7 @@ inline int project6(vec3f& ax,
     return 1;
 }
 
+__device__ __host__
 bool collide(vec3f& P1, vec3f& P2, vec3f& P3, vec3f& Q1, vec3f& Q2, vec3f& Q3)
 {
     vec3f p1;
@@ -187,6 +195,63 @@ bool collide(vec3f& P1, vec3f& P2, vec3f& P3, vec3f& Q1, vec3f& Q2, vec3f& Q3)
     return true;
 }
 
+__global__ void kernel(const float* vertices,
+                       const unsigned int* indices,
+                       const unsigned int num_triangles,
+                       unsigned int* flags)
+{
+    unsigned int i_offset = blockDim.x * gridDim.x;
+    unsigned int j_offset = blockDim.y * gridDim.y;
+
+    unsigned int i = threadIdx.x + blockIdx.x * blockDim.x;
+    while (i < num_triangles)
+    {
+        unsigned int j = threadIdx.y + blockIdx.y * blockDim.y;
+        while (j < num_triangles)
+        {
+            if (i >= j)
+            {
+                j += j_offset;
+                continue;
+            }
+
+            unsigned int i0 = indices[i * 3];
+            unsigned int i1 = indices[i * 3 + 1];
+            unsigned int i2 = indices[i * 3 + 2];
+
+            unsigned int j0 = indices[j * 3];
+            unsigned int j1 = indices[j * 3 + 1];
+            unsigned int j2 = indices[j * 3 + 2];
+
+            if (i0 == j0 || i0 == j1 || i0 == j2 ||
+                i1 == j0 || i1 == j1 || i1 == j2 ||
+                i2 == j0 || i2 == j1 || i2 == j2)
+            {
+                j += j_offset;
+                continue;
+            }
+
+            vec3f p0(vertices[i0 * 3], vertices[i0 * 3 + 1], vertices[i0 * 3 + 2]);
+            vec3f p1(vertices[i1 * 3], vertices[i1 * 3 + 1], vertices[i1 * 3 + 2]);
+            vec3f p2(vertices[i2 * 3], vertices[i2 * 3 + 1], vertices[i2 * 3 + 2]);
+
+            vec3f q0(vertices[j0 * 3], vertices[j0 * 3 + 1], vertices[j0 * 3 + 2]);
+            vec3f q1(vertices[j1 * 3], vertices[j1 * 3 + 1], vertices[j1 * 3 + 2]);
+            vec3f q2(vertices[j2 * 3], vertices[j2 * 3 + 1], vertices[j2 * 3 + 2]);
+
+            if (collide(p0, p1, p2, q0, q1, q2))
+            {
+                atomicAdd(&flags[i], 1);
+                atomicAdd(&flags[j], 1);
+            }
+
+            j += j_offset;
+        }
+
+        i += i_offset;
+    }
+}
+
 void framebuffer_size_callback(GLFWwindow* window, int width, int height);
 void mouse_callback(GLFWwindow* window, double xpos, double ypos);
 void scroll_callback(GLFWwindow* window, double xoffset, double yoffset);
@@ -201,6 +266,7 @@ Camera camera(glm::vec3(0.0f, 0.0f, 3.0f));
 float lastX = SCR_WIDTH / 2.0f;
 float lastY = SCR_HEIGHT / 2.0f;
 bool firstMouse = true;
+bool displayCollision = false;
 
 // timing
 float deltaTime = 0.0f;
@@ -253,8 +319,8 @@ int main()
 
     // read triangles from obj file
     // ----------------------------
-    // const char* objFilePath = "E:/workspace/OpenGL/OpenGL/resources/two_spheres.obj";
-    const char* objFilePath = "E:/GPU-cuda-course/flag-no-cd/0181_00.obj";
+    const char* objFilePath = "E:/workspace/OpenGL/OpenGL/resources/two_spheres.obj";
+    // const char* objFilePath = "E:/GPU-cuda-course/flag-no-cd/0181_00.obj";
     std::vector<float> vertices;
     std::vector<unsigned int> indices;
     if (!readObjFile(objFilePath, vertices, indices))
@@ -264,11 +330,51 @@ int main()
         return -1;
     }
 
+    // collision detection on GPU
+    // --------------------------
+    unsigned int numTriangles = indices.size() / 3;
+
+    float* d_vertices;
+    unsigned int* d_indices;
+    unsigned int* d_flags;
+
+    cudaMalloc(&d_vertices, sizeof(float) * vertices.size());
+    cudaMalloc(&d_indices, sizeof(unsigned int) * indices.size());
+    cudaMalloc(&d_flags, sizeof(unsigned int) * numTriangles);
+
+    cudaMemcpy(d_vertices, &vertices[0], sizeof(float) * vertices.size(), cudaMemcpyHostToDevice);
+    cudaMemcpy(d_indices, &indices[0], sizeof(unsigned int) * indices.size(), cudaMemcpyHostToDevice);
+    cudaMemset(d_flags, 0, sizeof(unsigned int) * numTriangles);
+
+    //const dim3 BLOCK_SIZE(256, 256);
+    //const dim3 GRID_SIZE((numTriangles + BLOCK_SIZE.x - 1) / BLOCK_SIZE.x,
+    //                     (numTriangles + BLOCK_SIZE.y - 1) / BLOCK_SIZE.y);
+    const dim3 BLOCK_SIZE(4, 4);
+    const dim3 GRID_SIZE(2, 2);
+    kernel<<<GRID_SIZE, BLOCK_SIZE>>>(d_vertices, d_indices, numTriangles, d_flags);
+
+    std::vector<unsigned int> flags(numTriangles);
+    cudaMemcpy(&flags[0], d_flags, sizeof(unsigned int) * numTriangles, cudaMemcpyDeviceToHost);
+
+    std::vector<unsigned int> indices2;
+    for (unsigned int i = 0; i < numTriangles; i++)
+    {
+        if (flags[i] > 0)
+        {
+            indices2.push_back(indices[i * 3]);
+            indices2.push_back(indices[i * 3 + 1]);
+            indices2.push_back(indices[i * 3 + 2]);
+        }
+    }
+
+    cudaFree(d_vertices);
+    cudaFree(d_indices);
+    cudaFree(d_flags);
+
     // collision detection on CPU
     // --------------------------
-    std::set<unsigned int> s;
+    /*std::set<unsigned int> s;
     unsigned int count = 0;
-    unsigned int numTriangles = indices.size() / 3;
 
     #pragma omp parallel for
     for (int i = 0; i < numTriangles; i++)
@@ -319,12 +425,13 @@ int main()
         indices2[idx * 3 + 1] = indices[(*iter) * 3 + 1];
         indices2[idx * 3 + 2] = indices[(*iter) * 3 + 2];
         ++idx;
-    }
+    }*/
 
-    unsigned int VBO, VAO, EBO;
+    unsigned int VBO, VAO, EBO, EBO2;
     glGenVertexArrays(1, &VAO);
     glGenBuffers(1, &VBO);
     glGenBuffers(1, &EBO);
+    glGenBuffers(1, &EBO2);
 
     glBindVertexArray(VAO);
 
@@ -332,6 +439,9 @@ int main()
     glBufferData(GL_ARRAY_BUFFER, sizeof(float)* vertices.size(), &vertices[0], GL_STATIC_DRAW);
 
     glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBO);
+    glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(unsigned int) * indices.size(), &indices[0], GL_STATIC_DRAW);
+
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBO2);
     glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(unsigned int)* indices2.size(), &indices2[0], GL_STATIC_DRAW);
 
     glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0);
@@ -364,8 +474,17 @@ int main()
         shader.setMat4("view", view);
         shader.setMat4("model", model);
 
-        glBindVertexArray(VAO);
-        glDrawElements(GL_TRIANGLES, indices2.size(), GL_UNSIGNED_INT, 0);
+        if (displayCollision)
+        {
+            glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBO2);
+            glDrawElements(GL_TRIANGLES, indices2.size(), GL_UNSIGNED_INT, 0);
+        }
+        else
+        {
+            glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBO);
+            glDrawElements(GL_TRIANGLES, indices.size(), GL_UNSIGNED_INT, 0);
+        }
+
 
         // glfw: swap buffers and poll IO events (keys pressed/released, mouse moved etc.)
         // -------------------------------------------------------------------------------
@@ -394,6 +513,11 @@ void processInput(GLFWwindow* window)
         camera.ProcessKeyboard(LEFT, deltaTime);
     if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS)
         camera.ProcessKeyboard(RIGHT, deltaTime);
+
+    if (glfwGetKey(window, GLFW_KEY_N) == GLFW_PRESS)
+        displayCollision = false;
+    if (glfwGetKey(window, GLFW_KEY_M) == GLFW_PRESS)
+        displayCollision = true;
 }
 
 // glfw: whenever the window size changed (by OS or user resize) this callback function executes
