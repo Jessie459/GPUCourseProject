@@ -241,6 +241,7 @@ __global__ void kernel(const float* vertices,
 
             if (collide(p0, p1, p2, q0, q1, q2))
             {
+                printf("Collision happened! i = %u j = %u\n", i, j);
                 atomicAdd(&flags[i], 1);
                 atomicAdd(&flags[j], 1);
             }
@@ -319,8 +320,8 @@ int main()
 
     // read triangles from obj file
     // ----------------------------
-    const char* objFilePath = "E:/workspace/OpenGL/OpenGL/resources/two_spheres.obj";
-    // const char* objFilePath = "E:/GPU-cuda-course/flag-no-cd/0181_00.obj";
+    // const char* objFilePath = "E:/workspace/OpenGL/OpenGL/resources/two_spheres.obj";
+    const char* objFilePath = "E:/GPU-cuda-course/flag-no-cd/0181_00.obj";
     std::vector<float> vertices;
     std::vector<unsigned int> indices;
     if (!readObjFile(objFilePath, vertices, indices))
@@ -333,6 +334,7 @@ int main()
     // collision detection on GPU
     // --------------------------
     unsigned int numTriangles = indices.size() / 3;
+    std::cout << numTriangles << std::endl;
 
     float* d_vertices;
     unsigned int* d_indices;
@@ -349,8 +351,8 @@ int main()
     //const dim3 BLOCK_SIZE(256, 256);
     //const dim3 GRID_SIZE((numTriangles + BLOCK_SIZE.x - 1) / BLOCK_SIZE.x,
     //                     (numTriangles + BLOCK_SIZE.y - 1) / BLOCK_SIZE.y);
-    const dim3 BLOCK_SIZE(4, 4);
-    const dim3 GRID_SIZE(2, 2);
+    const dim3 BLOCK_SIZE(32, 32);
+    const dim3 GRID_SIZE(32, 32);
     kernel<<<GRID_SIZE, BLOCK_SIZE>>>(d_vertices, d_indices, numTriangles, d_flags);
 
     std::vector<unsigned int> flags(numTriangles);
@@ -366,6 +368,8 @@ int main()
             indices2.push_back(indices[i * 3 + 2]);
         }
     }
+
+    std::cout << indices2.size() << std::endl;
 
     cudaFree(d_vertices);
     cudaFree(d_indices);
