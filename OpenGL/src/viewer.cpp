@@ -17,6 +17,7 @@
 #include <thrust/device_vector.h>
 
 #include "vec3f.h"
+#include "bvh.h"
 
 bool readObjFile(const char* path, std::vector<float>& vertices, std::vector<unsigned int>& indices)
 {
@@ -75,126 +76,6 @@ bool readObjFile(const char* path, std::vector<float>& vertices, std::vector<uns
     return true;
 }
 
-__device__ __host__
-inline float fmax3(float a, float b, float c)
-{
-    float t = a;
-    if (b > t) t = b;
-    if (c > t) t = c;
-    return t;
-}
-
-__device__ __host__
-inline float fmin3(float a, float b, float c)
-{
-    float t = a;
-    if (b < t) t = b;
-    if (c < t) t = c;
-    return t;
-}
-
-__device__ __host__
-inline int project3(vec3f& ax,
-                    vec3f& p1, vec3f& p2, vec3f& p3)
-{
-    float P1 = ax.dot(p1);
-    float P2 = ax.dot(p2);
-    float P3 = ax.dot(p3);
-
-    float mx1 = fmax3(P1, P2, P3);
-    float mn1 = fmin3(P1, P2, P3);
-
-    if (mn1 > 0) return 0;
-    if (0 > mx1) return 0;
-    return 1;
-}
-
-__device__ __host__
-inline int project6(vec3f& ax,
-                    vec3f& p1, vec3f& p2, vec3f& p3,
-                    vec3f& q1, vec3f& q2, vec3f& q3)
-{
-    float P1 = ax.dot(p1);
-    float P2 = ax.dot(p2);
-    float P3 = ax.dot(p3);
-    float Q1 = ax.dot(q1);
-    float Q2 = ax.dot(q2);
-    float Q3 = ax.dot(q3);
-
-    float mx1 = fmax3(P1, P2, P3);
-    float mn1 = fmin3(P1, P2, P3);
-    float mx2 = fmax3(Q1, Q2, Q3);
-    float mn2 = fmin3(Q1, Q2, Q3);
-
-    if (mn1 > mx2) return 0;
-    if (mn2 > mx1) return 0;
-    return 1;
-}
-
-__device__ __host__
-bool collide(vec3f& P1, vec3f& P2, vec3f& P3, vec3f& Q1, vec3f& Q2, vec3f& Q3)
-{
-    vec3f p1;
-    vec3f p2 = P2 - P1;
-    vec3f p3 = P3 - P1;
-    vec3f q1 = Q1 - P1;
-    vec3f q2 = Q2 - P1;
-    vec3f q3 = Q3 - P1;
-
-    vec3f e1 = p2 - p1;
-    vec3f e2 = p3 - p2;
-    vec3f e3 = p1 - p3;
-
-    vec3f f1 = q2 - q1;
-    vec3f f2 = q3 - q2;
-    vec3f f3 = q1 - q3;
-
-    vec3f n1 = e1.cross(e2);
-    vec3f m1 = f1.cross(f2);
-
-    vec3f g1 = e1.cross(n1);
-    vec3f g2 = e2.cross(n1);
-    vec3f g3 = e3.cross(n1);
-
-    vec3f h1 = f1.cross(m1);
-    vec3f h2 = f2.cross(m1);
-    vec3f h3 = f3.cross(m1);
-
-    vec3f ef11 = e1.cross(f1);
-    vec3f ef12 = e1.cross(f2);
-    vec3f ef13 = e1.cross(f3);
-    vec3f ef21 = e2.cross(f1);
-    vec3f ef22 = e2.cross(f2);
-    vec3f ef23 = e2.cross(f3);
-    vec3f ef31 = e3.cross(f1);
-    vec3f ef32 = e3.cross(f2);
-    vec3f ef33 = e3.cross(f3);
-
-    vec3f p1_q1 = p1 - q1;
-    vec3f p2_q1 = p2 - q1;
-    vec3f p3_q1 = p3 - q1;
-    if (!project3(n1, q1, q2, q3)) return false;
-    if (!project3(m1, p1_q1, p2_q1, p3_q1)) return false;
-
-    if (!project6(ef11, p1, p2, p3, q1, q2, q3)) return false;
-    if (!project6(ef12, p1, p2, p3, q1, q2, q3)) return false;
-    if (!project6(ef13, p1, p2, p3, q1, q2, q3)) return false;
-    if (!project6(ef21, p1, p2, p3, q1, q2, q3)) return false;
-    if (!project6(ef22, p1, p2, p3, q1, q2, q3)) return false;
-    if (!project6(ef23, p1, p2, p3, q1, q2, q3)) return false;
-    if (!project6(ef31, p1, p2, p3, q1, q2, q3)) return false;
-    if (!project6(ef32, p1, p2, p3, q1, q2, q3)) return false;
-    if (!project6(ef33, p1, p2, p3, q1, q2, q3)) return false;
-    if (!project6(g1, p1, p2, p3, q1, q2, q3)) return false;
-    if (!project6(g2, p1, p2, p3, q1, q2, q3)) return false;
-    if (!project6(g3, p1, p2, p3, q1, q2, q3)) return false;
-    if (!project6(h1, p1, p2, p3, q1, q2, q3)) return false;
-    if (!project6(h2, p1, p2, p3, q1, q2, q3)) return false;
-    if (!project6(h3, p1, p2, p3, q1, q2, q3)) return false;
-
-    return true;
-}
-
 __global__ void kernel(const float* vertices,
                        const unsigned int* indices,
                        const unsigned int num_triangles,
@@ -241,7 +122,7 @@ __global__ void kernel(const float* vertices,
 
             if (collide(p0, p1, p2, q0, q1, q2))
             {
-                printf("Collision happened! i = %u j = %u\n", i, j);
+                //printf("Collision happened! i = %u j = %u\n", i, j);
                 atomicAdd(&flags[i], 1);
                 atomicAdd(&flags[j], 1);
             }
@@ -275,66 +156,69 @@ float lastFrame = 0.0f;
 
 int main()
 {
-    // glfw: initialize and configure
-    // ------------------------------
-    glfwInit();
-    glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
-    glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
-    glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
-
-    // glfw window creation
-    // --------------------
-    GLFWwindow* window = glfwCreateWindow(SCR_WIDTH, SCR_HEIGHT, "Viewer", NULL, NULL);
-    if (window == NULL)
-    {
-        std::cout << "Failed to create GLFW window" << std::endl;
-        glfwTerminate();
-        return -1;
-    }
-    glfwMakeContextCurrent(window);
-    glfwSetFramebufferSizeCallback(window, framebuffer_size_callback);
-    glfwSetCursorPosCallback(window, mouse_callback);
-    glfwSetScrollCallback(window, scroll_callback);
-
-    // tell GLFW to capture our mouse
-    glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
-
-    // glad: load all OpenGL function pointers
-    // ---------------------------------------
-    if (!gladLoadGLLoader((GLADloadproc)glfwGetProcAddress))
-    {
-        std::cout << "Failed to initialize GLAD" << std::endl;
-        glfwTerminate();
-        return -1;
-    }
-
-    // configure global opengl state
-    // -----------------------------
-    glEnable(GL_DEPTH_TEST);
-    glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
-
-    // build and compile shaders
-    // -------------------------
-    Shader shader("E:/workspace/OpenGL/OpenGL/src/shaders/model.vs",
-                  "E:/workspace/OpenGL/OpenGL/src/shaders/model.fs");
-
     // read triangles from obj file
     // ----------------------------
-    // const char* objFilePath = "E:/workspace/OpenGL/OpenGL/resources/two_spheres.obj";
+    //const char* objFilePath = "E:/workspace/OpenGL/OpenGL/resources/two_spheres.obj";
     const char* objFilePath = "E:/GPU-cuda-course/flag-no-cd/0181_00.obj";
     std::vector<float> vertices;
     std::vector<unsigned int> indices;
     if (!readObjFile(objFilePath, vertices, indices))
     {
         std::cout << "Failed to read obj file" << std::endl;
-        glfwTerminate();
         return -1;
     }
+    std::cout << "triangle number = " << indices.size() / 3 << std::endl;
+
+    // construct and traverse bvh tree
+    // -------------------------------
+    std::cout << "constructing bvh tree..." << std::endl;
+    BVH tree(vertices, indices);
+    std::cout << "constructing bvh tree done" << std::endl;
+
+    std::cout << "traversing bvh tree..." << std::endl;
+    tree.traverseBVH();
+    std::cout << "traversing bvh tree done" << std::endl;
+
+    thrust::host_vector<unsigned int> flags = tree.d_flags;
+    std::vector<unsigned int> indices2;
+    for (unsigned int i = 0; i < indices.size() / 3; i++)
+    {
+        if (flags[i] > 0)
+        {
+            std::cout << "collision triangle index = " << i << std::endl;
+            indices2.push_back(indices[i * 3]);
+            indices2.push_back(indices[i * 3 + 1]);
+            indices2.push_back(indices[i * 3 + 2]);
+        }
+    }
+
+    /*thrust::host_vector<aabb> h_aabbs = tree.d_aabbs;
+    std::cout << "aabb size = " << h_aabbs.size() << std::endl;
+    for (unsigned int i = 0; i < h_aabbs.size(); i++)
+    {
+        aabb bbox = h_aabbs[i];
+        std::cout << "index = " << i << std::endl;
+        std::cout << "lower = " << bbox.lower.x << " " << bbox.lower.y << " " << bbox.lower.z << std::endl;
+        std::cout << "upper = " << bbox.upper.x << " " << bbox.upper.y << " " << bbox.upper.z << std::endl;
+        std::cout << std::endl;
+    }
+
+    thrust::host_vector<node> h_nodes = tree.d_nodes;
+    std::cout << "node size = " << h_nodes.size() << std::endl;
+    for (unsigned int i = 0; i < h_nodes.size(); i++)
+    {
+        node n = h_nodes[i];
+        std::cout << "index = " << i << std::endl;
+        std::cout << "parent index = " << n.parentIdx << std::endl;
+        std::cout << "lchild index = " << n.lchildIdx << std::endl;
+        std::cout << "rchild index = " << n.rchildIdx << std::endl;
+        std::cout << "object index = " << n.objectIdx << std::endl;
+    }*/
 
     // collision detection on GPU
     // --------------------------
-    unsigned int numTriangles = indices.size() / 3;
-    std::cout << numTriangles << std::endl;
+    /*unsigned int numTriangles = indices.size() / 3;
+    std::cout << "#triangles = " << numTriangles << std::endl;
 
     float* d_vertices;
     unsigned int* d_indices;
@@ -348,12 +232,21 @@ int main()
     cudaMemcpy(d_indices, &indices[0], sizeof(unsigned int) * indices.size(), cudaMemcpyHostToDevice);
     cudaMemset(d_flags, 0, sizeof(unsigned int) * numTriangles);
 
-    //const dim3 BLOCK_SIZE(256, 256);
-    //const dim3 GRID_SIZE((numTriangles + BLOCK_SIZE.x - 1) / BLOCK_SIZE.x,
-    //                     (numTriangles + BLOCK_SIZE.y - 1) / BLOCK_SIZE.y);
     const dim3 BLOCK_SIZE(32, 32);
-    const dim3 GRID_SIZE(32, 32);
+    const dim3 GRID_SIZE(64, 64);
+
+    cudaEvent_t start, stop;
+    float elapsedTime;
+    cudaEventCreate(&start);
+    cudaEventCreate(&stop);
+    cudaEventRecord(start, 0);
+
     kernel<<<GRID_SIZE, BLOCK_SIZE>>>(d_vertices, d_indices, numTriangles, d_flags);
+
+    cudaEventRecord(stop, 0);
+    cudaEventSynchronize(stop);
+    cudaEventElapsedTime(&elapsedTime, start, stop);
+    std::cout << "elapsed time: " << elapsedTime / 1000.0f << "s" <<  std::endl;
 
     std::vector<unsigned int> flags(numTriangles);
     cudaMemcpy(&flags[0], d_flags, sizeof(unsigned int) * numTriangles, cudaMemcpyDeviceToHost);
@@ -369,11 +262,9 @@ int main()
         }
     }
 
-    std::cout << indices2.size() << std::endl;
-
     cudaFree(d_vertices);
     cudaFree(d_indices);
-    cudaFree(d_flags);
+    cudaFree(d_flags);*/
 
     // collision detection on CPU
     // --------------------------
@@ -430,6 +321,49 @@ int main()
         indices2[idx * 3 + 2] = indices[(*iter) * 3 + 2];
         ++idx;
     }*/
+
+    // glfw: initialize and configure
+    // ------------------------------
+    glfwInit();
+    glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
+    glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
+    glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
+
+    // glfw window creation
+    // --------------------
+    GLFWwindow* window = glfwCreateWindow(SCR_WIDTH, SCR_HEIGHT, "Viewer", NULL, NULL);
+    if (window == NULL)
+    {
+        std::cout << "Failed to create GLFW window" << std::endl;
+        glfwTerminate();
+        return -1;
+    }
+    glfwMakeContextCurrent(window);
+    glfwSetFramebufferSizeCallback(window, framebuffer_size_callback);
+    glfwSetCursorPosCallback(window, mouse_callback);
+    glfwSetScrollCallback(window, scroll_callback);
+
+    // tell GLFW to capture our mouse
+    glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
+
+    // glad: load all OpenGL function pointers
+    // ---------------------------------------
+    if (!gladLoadGLLoader((GLADloadproc)glfwGetProcAddress))
+    {
+        std::cout << "Failed to initialize GLAD" << std::endl;
+        glfwTerminate();
+        return -1;
+    }
+
+    // configure global opengl state
+    // -----------------------------
+    glEnable(GL_DEPTH_TEST);
+    glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
+
+    // build and compile shaders
+    // -------------------------
+    Shader shader("E:/workspace/OpenGL/OpenGL/src/shaders/model.vs",
+                  "E:/workspace/OpenGL/OpenGL/src/shaders/model.fs");
 
     unsigned int VBO, VAO, EBO, EBO2;
     glGenVertexArrays(1, &VAO);
@@ -518,9 +452,9 @@ void processInput(GLFWwindow* window)
     if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS)
         camera.ProcessKeyboard(RIGHT, deltaTime);
 
-    if (glfwGetKey(window, GLFW_KEY_N) == GLFW_PRESS)
+    if (glfwGetKey(window, GLFW_KEY_1) == GLFW_PRESS)
         displayCollision = false;
-    if (glfwGetKey(window, GLFW_KEY_M) == GLFW_PRESS)
+    if (glfwGetKey(window, GLFW_KEY_2) == GLFW_PRESS)
         displayCollision = true;
 }
 
