@@ -30,8 +30,9 @@ public:
 
     void constructBVH();
     void traverseBVH();
+    std::vector<unsigned int> getFlags();
 
-public:
+private:
     thrust::device_vector<float> d_vertices;
     thrust::device_vector<triangle> d_triangles;
 

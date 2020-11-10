@@ -31,6 +31,9 @@
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="src\bvh.h" />
+    <ClInclude Include="src\camera.h" />
+    <ClInclude Include="src\model.h" />
+    <ClInclude Include="src\shader.h" />
     <ClInclude Include="src\triangle.h" />
     <ClInclude Include="src\vec3f.h" />
   </ItemGroup>

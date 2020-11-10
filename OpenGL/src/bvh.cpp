@@ -4,10 +4,11 @@
 BVH::BVH(const std::vector<float>& h_vertices,
          const std::vector<unsigned int>& h_indices)
 {
-    unsigned int numTriangles = h_indices.size() / 3;
-
+    // set vertices
     d_vertices = h_vertices;
 
+    // set triangles
+    unsigned int numTriangles = h_indices.size() / 3;
     d_triangles.resize(numTriangles);
     for (unsigned int i = 0; i < numTriangles; i++)
     {
@@ -18,9 +19,8 @@ BVH::BVH(const std::vector<float>& h_vertices,
         d_triangles[i] = tri;
     }
 
+    // set flags that indicate whether triangles collide
     d_flags.resize(numTriangles, 0);
-
-    constructBVH();
 }
 
 void BVH::constructBVH()
@@ -214,7 +214,7 @@ void BVH::traverseBVH()
         thrust::make_counting_iterator<unsigned int>(0),
         thrust::make_counting_iterator<unsigned int>(numTriangles),
         [aabbs, nodes, vertices, triangles, numTriangles, flags]
-        __device__(unsigned int index)
+        __device__ (unsigned int index)
         {
             traverse(aabbs, nodes, vertices, triangles, numTriangles, index, flags);
         }
@@ -271,8 +271,10 @@ void traverse(const aabb* aabbs, const node* nodes, const float* vertices, const
 
                 if (collide(p0, p1, p2, q0, q1, q2))
                 {
-                    atomicAdd(&flags[index], 1);
-                    atomicAdd(&flags[objectIdx], 1);
+                    // atomicAdd(&flags[index], 1);
+                    // atomicAdd(&flags[objectIdx], 1);
+                    flags[index] = 1;
+                    flags[objectIdx] = 1;
                 }
             }
             else // internal node
@@ -314,8 +316,10 @@ void traverse(const aabb* aabbs, const node* nodes, const float* vertices, const
 
                 if (collide(p0, p1, p2, q0, q1, q2))
                 {
-                    atomicAdd(&flags[index], 1);
-                    atomicAdd(&flags[objectIdx], 1);
+                    // atomicAdd(&flags[index], 1);
+                    // atomicAdd(&flags[objectIdx], 1);
+                    flags[index] = 1;
+                    flags[objectIdx] = 1;
                 }
             }
             else // internal node
@@ -330,6 +334,14 @@ void traverse(const aabb* aabbs, const node* nodes, const float* vertices, const
             }
         }
     } while (stackIdx > 0);
+}
+
+
+std::vector<unsigned int> BVH::getFlags()
+{
+    std::vector<unsigned int> flags(d_flags.size());
+    cudaMemcpy(&flags[0], d_flags.data().get(), sizeof(unsigned int) * d_flags.size(), cudaMemcpyDeviceToHost);
+    return flags;
 }
 
 __device__

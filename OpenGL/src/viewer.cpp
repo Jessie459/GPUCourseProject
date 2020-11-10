@@ -5,135 +5,19 @@
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
 
-#include <learnopengl/shader.h>
-#include <learnopengl/camera.h>
-
 #include <iostream>
 #include <vector>
 #include <set>
 #include <cmath>
 
-#include <thrust/host_vector.h>
-#include <thrust/device_vector.h>
-
 #include "vec3f.h"
 #include "bvh.h"
+#include "camera.h"
+#include "shader.h"
+#include "model.h"
 
-bool readObjFile(const char* path, std::vector<float>& vertices, std::vector<unsigned int>& indices)
-{
-    FILE* stream;
-    errno_t err = fopen_s(&stream, path, "r");
-    if (err)
-        return false;
-
-    char buffer[1024];
-    while (fgets(buffer, 1024, stream))
-    {
-        if (buffer[0] == 'v' && buffer[1] == ' ') // vertices
-        {
-            float x, y, z;
-            sscanf_s(buffer + 2, "%f%f%f", &x, &y, &z);
-            vertices.push_back(x);
-            vertices.push_back(y);
-            vertices.push_back(z);
-        }
-        else if (buffer[0] == 'f' && buffer[1] == ' ') // faces
-        {
-            unsigned int idx0, idx1, idx2, idx3;
-            bool quad = false;
-
-            char* next = buffer;
-            sscanf_s(next + 2, "%u", &idx0);
-            next = strchr(next + 2, ' ');
-            sscanf_s(next + 1, "%u", &idx1);
-            next = strchr(next + 1, ' ');
-            sscanf_s(next + 1, "%u", &idx2);
-            next = strchr(next + 1, ' ');
-            if (next != NULL && next[1] >= '0' && next[1] <= '9')
-            {
-                if (sscanf_s(next + 1, "%u", &idx3))
-                    quad = true;
-            }
-
-            --idx0;
-            --idx1;
-            --idx2;
-            indices.push_back(idx0);
-            indices.push_back(idx1);
-            indices.push_back(idx2);
-
-            if (quad) {
-                --idx3;
-                indices.push_back(idx0);
-                indices.push_back(idx2);
-                indices.push_back(idx3);
-            }
-        }
-    }
-    fclose(stream);
-    if (vertices.size() == 0 || indices.size() == 0)
-        return false;
-    return true;
-}
-
-__global__ void kernel(const float* vertices,
-                       const unsigned int* indices,
-                       const unsigned int num_triangles,
-                       unsigned int* flags)
-{
-    unsigned int i_offset = blockDim.x * gridDim.x;
-    unsigned int j_offset = blockDim.y * gridDim.y;
-
-    unsigned int i = threadIdx.x + blockIdx.x * blockDim.x;
-    while (i < num_triangles)
-    {
-        unsigned int j = threadIdx.y + blockIdx.y * blockDim.y;
-        while (j < num_triangles)
-        {
-            if (i >= j)
-            {
-                j += j_offset;
-                continue;
-            }
-
-            unsigned int i0 = indices[i * 3];
-            unsigned int i1 = indices[i * 3 + 1];
-            unsigned int i2 = indices[i * 3 + 2];
-
-            unsigned int j0 = indices[j * 3];
-            unsigned int j1 = indices[j * 3 + 1];
-            unsigned int j2 = indices[j * 3 + 2];
-
-            if (i0 == j0 || i0 == j1 || i0 == j2 ||
-                i1 == j0 || i1 == j1 || i1 == j2 ||
-                i2 == j0 || i2 == j1 || i2 == j2)
-            {
-                j += j_offset;
-                continue;
-            }
-
-            vec3f p0(vertices[i0 * 3], vertices[i0 * 3 + 1], vertices[i0 * 3 + 2]);
-            vec3f p1(vertices[i1 * 3], vertices[i1 * 3 + 1], vertices[i1 * 3 + 2]);
-            vec3f p2(vertices[i2 * 3], vertices[i2 * 3 + 1], vertices[i2 * 3 + 2]);
-
-            vec3f q0(vertices[j0 * 3], vertices[j0 * 3 + 1], vertices[j0 * 3 + 2]);
-            vec3f q1(vertices[j1 * 3], vertices[j1 * 3 + 1], vertices[j1 * 3 + 2]);
-            vec3f q2(vertices[j2 * 3], vertices[j2 * 3 + 1], vertices[j2 * 3 + 2]);
-
-            if (collide(p0, p1, p2, q0, q1, q2))
-            {
-                //printf("Collision happened! i = %u j = %u\n", i, j);
-                atomicAdd(&flags[i], 1);
-                atomicAdd(&flags[j], 1);
-            }
-
-            j += j_offset;
-        }
-
-        i += i_offset;
-    }
-}
-
+bool readObjFile(const char* path, std::vector<float>& vertices, std::vector<unsigned int>& indices);
+__global__ void kernel(const float* vertices, const unsigned int* indices, const unsigned int num_triangles, unsigned int* flags);
 void framebuffer_size_callback(GLFWwindow* window, int width, int height);
 void mouse_callback(GLFWwindow* window, double xpos, double ypos);
 void scroll_callback(GLFWwindow* window, double xoffset, double yoffset);
@@ -143,77 +27,39 @@ void processInput(GLFWwindow* window);
 const unsigned int SCR_WIDTH = 800;
 const unsigned int SCR_HEIGHT = 600;
 
+bool displayCollision = false;
+bool checkedCollision = false;
+
+float deltaTime = 0.0f;
+float lastFrame = 0.0f;
+
 // camera
 Camera camera(glm::vec3(0.0f, 0.0f, 3.0f));
 float lastX = SCR_WIDTH / 2.0f;
 float lastY = SCR_HEIGHT / 2.0f;
 bool firstMouse = true;
-bool displayCollision = false;
 
-// timing
-float deltaTime = 0.0f;
-float lastFrame = 0.0f;
-
-int main()
+int main(int argc, char** argv)
 {
-    // read triangles from obj file
-    // ----------------------------
-    //const char* objFilePath = "E:/workspace/OpenGL/OpenGL/resources/two_spheres.obj";
-    const char* objFilePath = "E:/GPU-cuda-course/flag-no-cd/0181_00.obj";
+    if (argc < 2)
+    {
+        std::cout << "usage: " << argv[0] << " path" << std::endl;
+        return 0;
+    }
+    const char* objFilePath = argv[1];
+
     std::vector<float> vertices;
     std::vector<unsigned int> indices;
+    std::vector<unsigned int> collideIndices;
+
+    // read triangles from obj file
+    // ----------------------------
     if (!readObjFile(objFilePath, vertices, indices))
     {
         std::cout << "Failed to read obj file" << std::endl;
         return -1;
     }
-    std::cout << "triangle number = " << indices.size() / 3 << std::endl;
-
-    // construct and traverse bvh tree
-    // -------------------------------
-    std::cout << "constructing bvh tree..." << std::endl;
-    BVH tree(vertices, indices);
-    std::cout << "constructing bvh tree done" << std::endl;
-
-    std::cout << "traversing bvh tree..." << std::endl;
-    tree.traverseBVH();
-    std::cout << "traversing bvh tree done" << std::endl;
-
-    thrust::host_vector<unsigned int> flags = tree.d_flags;
-    std::vector<unsigned int> indices2;
-    for (unsigned int i = 0; i < indices.size() / 3; i++)
-    {
-        if (flags[i] > 0)
-        {
-            std::cout << "collision triangle index = " << i << std::endl;
-            indices2.push_back(indices[i * 3]);
-            indices2.push_back(indices[i * 3 + 1]);
-            indices2.push_back(indices[i * 3 + 2]);
-        }
-    }
-
-    /*thrust::host_vector<aabb> h_aabbs = tree.d_aabbs;
-    std::cout << "aabb size = " << h_aabbs.size() << std::endl;
-    for (unsigned int i = 0; i < h_aabbs.size(); i++)
-    {
-        aabb bbox = h_aabbs[i];
-        std::cout << "index = " << i << std::endl;
-        std::cout << "lower = " << bbox.lower.x << " " << bbox.lower.y << " " << bbox.lower.z << std::endl;
-        std::cout << "upper = " << bbox.upper.x << " " << bbox.upper.y << " " << bbox.upper.z << std::endl;
-        std::cout << std::endl;
-    }
-
-    thrust::host_vector<node> h_nodes = tree.d_nodes;
-    std::cout << "node size = " << h_nodes.size() << std::endl;
-    for (unsigned int i = 0; i < h_nodes.size(); i++)
-    {
-        node n = h_nodes[i];
-        std::cout << "index = " << i << std::endl;
-        std::cout << "parent index = " << n.parentIdx << std::endl;
-        std::cout << "lchild index = " << n.lchildIdx << std::endl;
-        std::cout << "rchild index = " << n.rchildIdx << std::endl;
-        std::cout << "object index = " << n.objectIdx << std::endl;
-    }*/
+    std::cout << "triangle number = " << indices.size() / 3 << std::endl << std::endl;
 
     // collision detection on GPU
     // --------------------------
@@ -365,25 +211,9 @@ int main()
     Shader shader("E:/workspace/OpenGL/OpenGL/src/shaders/model.vs",
                   "E:/workspace/OpenGL/OpenGL/src/shaders/model.fs");
 
-    unsigned int VBO, VAO, EBO, EBO2;
-    glGenVertexArrays(1, &VAO);
-    glGenBuffers(1, &VBO);
-    glGenBuffers(1, &EBO);
-    glGenBuffers(1, &EBO2);
-
-    glBindVertexArray(VAO);
-
-    glBindBuffer(GL_ARRAY_BUFFER, VBO);
-    glBufferData(GL_ARRAY_BUFFER, sizeof(float)* vertices.size(), &vertices[0], GL_STATIC_DRAW);
-
-    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBO);
-    glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(unsigned int) * indices.size(), &indices[0], GL_STATIC_DRAW);
-
-    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBO2);
-    glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(unsigned int)* indices2.size(), &indices2[0], GL_STATIC_DRAW);
-
-    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0);
-    glEnableVertexAttribArray(0);
+    // load cloth model
+    // ----------------
+    Model cloth(vertices, indices);
 
     // render loop
     // -----------
@@ -412,17 +242,59 @@ int main()
         shader.setMat4("view", view);
         shader.setMat4("model", model);
 
-        if (displayCollision)
+        if (displayCollision == false)
         {
-            glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBO2);
-            glDrawElements(GL_TRIANGLES, indices2.size(), GL_UNSIGNED_INT, 0);
+            cloth.draw();
         }
         else
         {
-            glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBO);
-            glDrawElements(GL_TRIANGLES, indices.size(), GL_UNSIGNED_INT, 0);
-        }
+            if (checkedCollision == false)
+            {
+                cudaEvent_t start, stop;
+                float elapsedTime;
+                cudaEventCreate(&start);
+                cudaEventCreate(&stop);
 
+                BVH tree(vertices, indices);
+
+                std::cout << "constructing bvh tree..." << std::endl;
+                cudaEventRecord(start, 0);
+                tree.constructBVH();
+                cudaEventRecord(stop, 0);
+                cudaEventSynchronize(stop);
+                cudaEventElapsedTime(&elapsedTime, start, stop);
+                std::cout << "elapsed time: " << elapsedTime / 1000.0f << " seconds" << std::endl;
+                std::cout << "constructing bvh tree done" << std::endl << std::endl;
+
+                std::cout << "traversing bvh tree..." << std::endl;
+                cudaEventRecord(start, 0);
+                tree.traverseBVH();
+                cudaEventRecord(stop, 0);
+                cudaEventSynchronize(stop);
+                cudaEventElapsedTime(&elapsedTime, start, stop);
+                std::cout << "elapsed time: " << elapsedTime / 1000.0f << " seconds" << std::endl;
+                std::cout << "traversing bvh tree done" << std::endl << std::endl;
+
+                unsigned int counter = 0;
+                std::vector<unsigned int> flags = tree.getFlags();
+                for (unsigned int i = 0; i < indices.size() / 3; i++)
+                {
+                    if (flags[i] > 0)
+                    {
+                        collideIndices.push_back(indices[i * 3]);
+                        collideIndices.push_back(indices[i * 3 + 1]);
+                        collideIndices.push_back(indices[i * 3 + 2]);
+                        ++counter;
+                    }
+                }
+                cloth.setCollision(collideIndices);
+                std::cout << "collision triangle number = " << counter << std::endl;
+
+                checkedCollision = true;
+            }
+            
+            cloth.drawCollision();
+        }
 
         // glfw: swap buffers and poll IO events (keys pressed/released, mouse moved etc.)
         // -------------------------------------------------------------------------------
@@ -462,8 +334,6 @@ void processInput(GLFWwindow* window)
 // ---------------------------------------------------------------------------------------------
 void framebuffer_size_callback(GLFWwindow* window, int width, int height)
 {
-    // make sure the viewport matches the new window dimensions; note that width and 
-    // height will be significantly larger than specified on retina displays.
     glViewport(0, 0, width, height);
 }
 
@@ -479,7 +349,7 @@ void mouse_callback(GLFWwindow* window, double xpos, double ypos)
     }
 
     float xoffset = xpos - lastX;
-    float yoffset = lastY - ypos; // reversed since y-coordinates go from bottom to top
+    float yoffset = lastY - ypos;
 
     lastX = xpos;
     lastY = ypos;
@@ -492,4 +362,116 @@ void mouse_callback(GLFWwindow* window, double xpos, double ypos)
 void scroll_callback(GLFWwindow* window, double xoffset, double yoffset)
 {
     camera.ProcessMouseScroll(yoffset);
+}
+
+bool readObjFile(const char* path, std::vector<float>& vertices, std::vector<unsigned int>& indices)
+{
+    FILE* stream;
+    errno_t err = fopen_s(&stream, path, "r");
+    if (err)
+        return false;
+
+    char buffer[1024];
+    while (fgets(buffer, 1024, stream))
+    {
+        if (buffer[0] == 'v' && buffer[1] == ' ') // vertices
+        {
+            float x, y, z;
+            sscanf_s(buffer + 2, "%f%f%f", &x, &y, &z);
+            vertices.push_back(x);
+            vertices.push_back(y);
+            vertices.push_back(z);
+        }
+        else if (buffer[0] == 'f' && buffer[1] == ' ') // faces
+        {
+            unsigned int idx0, idx1, idx2, idx3;
+            bool quad = false;
+
+            char* next = buffer;
+            sscanf_s(next + 2, "%u", &idx0);
+            next = strchr(next + 2, ' ');
+            sscanf_s(next + 1, "%u", &idx1);
+            next = strchr(next + 1, ' ');
+            sscanf_s(next + 1, "%u", &idx2);
+            next = strchr(next + 1, ' ');
+            if (next != NULL && next[1] >= '0' && next[1] <= '9')
+            {
+                if (sscanf_s(next + 1, "%u", &idx3))
+                    quad = true;
+            }
+
+            --idx0;
+            --idx1;
+            --idx2;
+            indices.push_back(idx0);
+            indices.push_back(idx1);
+            indices.push_back(idx2);
+
+            if (quad) {
+                --idx3;
+                indices.push_back(idx0);
+                indices.push_back(idx2);
+                indices.push_back(idx3);
+            }
+        }
+    }
+    fclose(stream);
+    if (vertices.size() == 0 || indices.size() == 0)
+        return false;
+    return true;
+}
+
+__global__ void kernel(const float* vertices, const unsigned int* indices, const unsigned int num_triangles, unsigned int* flags)
+{
+    unsigned int i_offset = blockDim.x * gridDim.x;
+    unsigned int j_offset = blockDim.y * gridDim.y;
+
+    unsigned int i = threadIdx.x + blockIdx.x * blockDim.x;
+    while (i < num_triangles)
+    {
+        unsigned int j = threadIdx.y + blockIdx.y * blockDim.y;
+        while (j < num_triangles)
+        {
+            if (i >= j)
+            {
+                j += j_offset;
+                continue;
+            }
+
+            unsigned int i0 = indices[i * 3];
+            unsigned int i1 = indices[i * 3 + 1];
+            unsigned int i2 = indices[i * 3 + 2];
+
+            unsigned int j0 = indices[j * 3];
+            unsigned int j1 = indices[j * 3 + 1];
+            unsigned int j2 = indices[j * 3 + 2];
+
+            if (i0 == j0 || i0 == j1 || i0 == j2 ||
+                i1 == j0 || i1 == j1 || i1 == j2 ||
+                i2 == j0 || i2 == j1 || i2 == j2)
+            {
+                j += j_offset;
+                continue;
+            }
+
+            vec3f p0(vertices[i0 * 3], vertices[i0 * 3 + 1], vertices[i0 * 3 + 2]);
+            vec3f p1(vertices[i1 * 3], vertices[i1 * 3 + 1], vertices[i1 * 3 + 2]);
+            vec3f p2(vertices[i2 * 3], vertices[i2 * 3 + 1], vertices[i2 * 3 + 2]);
+
+            vec3f q0(vertices[j0 * 3], vertices[j0 * 3 + 1], vertices[j0 * 3 + 2]);
+            vec3f q1(vertices[j1 * 3], vertices[j1 * 3 + 1], vertices[j1 * 3 + 2]);
+            vec3f q2(vertices[j2 * 3], vertices[j2 * 3 + 1], vertices[j2 * 3 + 2]);
+
+            if (collide(p0, p1, p2, q0, q1, q2))
+            {
+                // printf("Collision happened! i = %u j = %u\n", i, j);
+                atomicAdd(&flags[i], 1);
+                atomicAdd(&flags[j], 1);
+            }
+
+            j += j_offset;
+        }
+
+        i += i_offset;
+    }
 }
