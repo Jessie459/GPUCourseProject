@@ -271,10 +271,8 @@ void traverse(const aabb* aabbs, const node* nodes, const float* vertices, const
 
                 if (collide(p0, p1, p2, q0, q1, q2))
                 {
-                    // atomicAdd(&flags[index], 1);
-                    // atomicAdd(&flags[objectIdx], 1);
-                    flags[index] = 1;
-                    flags[objectIdx] = 1;
+                    atomicAdd(&flags[index], 1);
+                    atomicAdd(&flags[objectIdx], 1);
                 }
             }
             else // internal node

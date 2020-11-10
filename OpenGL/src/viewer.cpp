@@ -65,7 +65,7 @@ int main(int argc, char** argv)
         std::cout << "Failed to read obj file" << std::endl;
         return -1;
     }
-    std::cout << "triangle number = " << indices.size() / 3 << std::endl << std::endl;
+    std::cout << "triangle number = " << indices.size() / 3 << std::endl;
 
     // collision detection on GPU
     // --------------------------
@@ -149,7 +149,7 @@ int main(int argc, char** argv)
     glfwSetScrollCallback(window, scroll_callback);
 
     // tell GLFW to capture our mouse
-    glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
+    // glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
 
     // glad: load all OpenGL function pointers
     // ---------------------------------------
@@ -230,7 +230,7 @@ int main(int argc, char** argv)
                 cudaEventCreate(&start);
                 cudaEventCreate(&stop);
 
-                std::cout << "collision detection using naive method..." << std::endl;
+                std::cout << "\ncollision detection using naive method..." << std::endl;
                 cudaEventRecord(start, 0);
                 kernel<<<GRID_SIZE, BLOCK_SIZE>>>(d_vertices, d_indices, numTriangles, d_flags);
                 cudaEventRecord(stop, 0);
@@ -276,14 +276,14 @@ int main(int argc, char** argv)
 
                 BVH tree(vertices, indices);
 
-                std::cout << "constructing bvh tree..." << std::endl;
+                std::cout << "\nconstructing bvh tree..." << std::endl;
                 cudaEventRecord(start, 0);
                 tree.constructBVH();
                 cudaEventRecord(stop, 0);
                 cudaEventSynchronize(stop);
                 cudaEventElapsedTime(&elapsedTime, start, stop);
                 std::cout << "elapsed time: " << elapsedTime / 1000.0f << " seconds" << std::endl;
-                std::cout << "constructing bvh tree done" << std::endl << std::endl;
+                std::cout << "constructing bvh tree done" << std::endl;
 
                 std::cout << "traversing bvh tree..." << std::endl;
                 cudaEventRecord(start, 0);
@@ -292,7 +292,7 @@ int main(int argc, char** argv)
                 cudaEventSynchronize(stop);
                 cudaEventElapsedTime(&elapsedTime, start, stop);
                 std::cout << "elapsed time: " << elapsedTime / 1000.0f << " seconds" << std::endl;
-                std::cout << "traversing bvh tree done" << std::endl << std::endl;
+                std::cout << "traversing bvh tree done" << std::endl;
 
                 std::vector<unsigned int> flags = tree.getFlags();
 

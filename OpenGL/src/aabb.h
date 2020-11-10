@@ -12,9 +12,9 @@ struct aabb
 __device__ __host__
 inline bool intersect(const aabb& lhs, const aabb& rhs)
 {
-    if (lhs.upper.x < rhs.lower.x || rhs.upper.x < lhs.lower.x) { return false; }
-    if (lhs.upper.y < rhs.lower.y || rhs.upper.y < lhs.lower.y) { return false; }
-    if (lhs.upper.z < rhs.lower.z || rhs.upper.z < lhs.lower.z) { return false; }
+    if (lhs.upper.x <= rhs.lower.x || rhs.upper.x <= lhs.lower.x) { return false; }
+    if (lhs.upper.y <= rhs.lower.y || rhs.upper.y <= lhs.lower.y) { return false; }
+    if (lhs.upper.z <= rhs.lower.z || rhs.upper.z <= lhs.lower.z) { return false; }
     return true;
 }
 
