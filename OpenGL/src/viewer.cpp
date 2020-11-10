@@ -10,6 +10,9 @@
 #include <set>
 #include <cmath>
 
+#include  <stdio.h>
+#include <direct.h>
+
 #include "vec3f.h"
 #include "bvh.h"
 #include "camera.h"
@@ -27,8 +30,10 @@ void processInput(GLFWwindow* window);
 const unsigned int SCR_WIDTH = 800;
 const unsigned int SCR_HEIGHT = 600;
 
-bool displayCollision = false;
-bool checkedCollision = false;
+bool displayBVHCollision = false;
+bool checkedBVHCollision = false;
+bool displayNaiveCollision = false;
+bool checkedNaiveCollision = false;
 
 float deltaTime = 0.0f;
 float lastFrame = 0.0f;
@@ -50,7 +55,8 @@ int main(int argc, char** argv)
 
     std::vector<float> vertices;
     std::vector<unsigned int> indices;
-    std::vector<unsigned int> collideIndices;
+    std::vector<unsigned int> naiveIndices;
+    std::vector<unsigned int> bvhIndices;
 
     // read triangles from obj file
     // ----------------------------
@@ -63,54 +69,7 @@ int main(int argc, char** argv)
 
     // collision detection on GPU
     // --------------------------
-    /*unsigned int numTriangles = indices.size() / 3;
-    std::cout << "#triangles = " << numTriangles << std::endl;
-
-    float* d_vertices;
-    unsigned int* d_indices;
-    unsigned int* d_flags;
-
-    cudaMalloc(&d_vertices, sizeof(float) * vertices.size());
-    cudaMalloc(&d_indices, sizeof(unsigned int) * indices.size());
-    cudaMalloc(&d_flags, sizeof(unsigned int) * numTriangles);
-
-    cudaMemcpy(d_vertices, &vertices[0], sizeof(float) * vertices.size(), cudaMemcpyHostToDevice);
-    cudaMemcpy(d_indices, &indices[0], sizeof(unsigned int) * indices.size(), cudaMemcpyHostToDevice);
-    cudaMemset(d_flags, 0, sizeof(unsigned int) * numTriangles);
-
-    const dim3 BLOCK_SIZE(32, 32);
-    const dim3 GRID_SIZE(64, 64);
-
-    cudaEvent_t start, stop;
-    float elapsedTime;
-    cudaEventCreate(&start);
-    cudaEventCreate(&stop);
-    cudaEventRecord(start, 0);
-
-    kernel<<<GRID_SIZE, BLOCK_SIZE>>>(d_vertices, d_indices, numTriangles, d_flags);
-
-    cudaEventRecord(stop, 0);
-    cudaEventSynchronize(stop);
-    cudaEventElapsedTime(&elapsedTime, start, stop);
-    std::cout << "elapsed time: " << elapsedTime / 1000.0f << "s" <<  std::endl;
-
-    std::vector<unsigned int> flags(numTriangles);
-    cudaMemcpy(&flags[0], d_flags, sizeof(unsigned int) * numTriangles, cudaMemcpyDeviceToHost);
-
-    std::vector<unsigned int> indices2;
-    for (unsigned int i = 0; i < numTriangles; i++)
-    {
-        if (flags[i] > 0)
-        {
-            indices2.push_back(indices[i * 3]);
-            indices2.push_back(indices[i * 3 + 1]);
-            indices2.push_back(indices[i * 3 + 2]);
-        }
-    }
-
-    cudaFree(d_vertices);
-    cudaFree(d_indices);
-    cudaFree(d_flags);*/
+    
 
     // collision detection on CPU
     // --------------------------
@@ -208,8 +167,7 @@ int main(int argc, char** argv)
 
     // build and compile shaders
     // -------------------------
-    Shader shader("E:/workspace/OpenGL/OpenGL/src/shaders/model.vs",
-                  "E:/workspace/OpenGL/OpenGL/src/shaders/model.fs");
+    Shader shader("./src/shaders/model.vs", "./src/shaders/model.fs");
 
     // load cloth model
     // ----------------
@@ -242,13 +200,74 @@ int main(int argc, char** argv)
         shader.setMat4("view", view);
         shader.setMat4("model", model);
 
-        if (displayCollision == false)
+        if (displayNaiveCollision == false && displayBVHCollision == false)
         {
             cloth.draw();
         }
-        else
+        else if (displayNaiveCollision == true)
         {
-            if (checkedCollision == false)
+            if (checkedNaiveCollision == false)
+            {
+                unsigned int numTriangles = indices.size() / 3;
+
+                float* d_vertices;
+                unsigned int* d_indices;
+                unsigned int* d_flags;
+
+                cudaMalloc(&d_vertices, sizeof(float) * vertices.size());
+                cudaMalloc(&d_indices, sizeof(unsigned int) * indices.size());
+                cudaMalloc(&d_flags, sizeof(unsigned int) * numTriangles);
+
+                cudaMemcpy(d_vertices, &vertices[0], sizeof(float) * vertices.size(), cudaMemcpyHostToDevice);
+                cudaMemcpy(d_indices, &indices[0], sizeof(unsigned int) * indices.size(), cudaMemcpyHostToDevice);
+                cudaMemset(d_flags, 0, sizeof(unsigned int) * numTriangles);
+
+                const dim3 BLOCK_SIZE(32, 32);
+                const dim3 GRID_SIZE(64, 64);
+
+                cudaEvent_t start, stop;
+                float elapsedTime;
+                cudaEventCreate(&start);
+                cudaEventCreate(&stop);
+
+                std::cout << "collision detection using naive method..." << std::endl;
+                cudaEventRecord(start, 0);
+                kernel<<<GRID_SIZE, BLOCK_SIZE>>>(d_vertices, d_indices, numTriangles, d_flags);
+                cudaEventRecord(stop, 0);
+                cudaEventSynchronize(stop);
+                cudaEventElapsedTime(&elapsedTime, start, stop);
+                std::cout << "elapsed time: " << elapsedTime / 1000.0f << " seconds" << std::endl;
+                std::cout << "collision detection using naive method done" << std::endl;
+
+                std::vector<unsigned int> flags(numTriangles);
+                cudaMemcpy(&flags[0], d_flags, sizeof(unsigned int) * numTriangles, cudaMemcpyDeviceToHost);
+
+                unsigned int counter = 0;
+                for (unsigned int i = 0; i < numTriangles; i++)
+                {
+                    if (flags[i] > 0)
+                    {
+                        naiveIndices.push_back(indices[i * 3]);
+                        naiveIndices.push_back(indices[i * 3 + 1]);
+                        naiveIndices.push_back(indices[i * 3 + 2]);
+                        ++counter;
+                    }
+                }
+                cloth.setNaiveCollision(naiveIndices);
+                std::cout << "collision triangle number = " << counter << std::endl;
+
+                cudaFree(d_vertices);
+                cudaFree(d_indices);
+                cudaFree(d_flags);
+
+                checkedNaiveCollision = true;
+            }
+
+            cloth.drawNaiveCollision();
+        }
+        else if (displayBVHCollision == true)
+        {
+            if (checkedBVHCollision == false)
             {
                 cudaEvent_t start, stop;
                 float elapsedTime;
@@ -275,25 +294,26 @@ int main(int argc, char** argv)
                 std::cout << "elapsed time: " << elapsedTime / 1000.0f << " seconds" << std::endl;
                 std::cout << "traversing bvh tree done" << std::endl << std::endl;
 
-                unsigned int counter = 0;
                 std::vector<unsigned int> flags = tree.getFlags();
+
+                unsigned int counter = 0;
                 for (unsigned int i = 0; i < indices.size() / 3; i++)
                 {
                     if (flags[i] > 0)
                     {
-                        collideIndices.push_back(indices[i * 3]);
-                        collideIndices.push_back(indices[i * 3 + 1]);
-                        collideIndices.push_back(indices[i * 3 + 2]);
+                        bvhIndices.push_back(indices[i * 3]);
+                        bvhIndices.push_back(indices[i * 3 + 1]);
+                        bvhIndices.push_back(indices[i * 3 + 2]);
                         ++counter;
                     }
                 }
-                cloth.setCollision(collideIndices);
+                cloth.setBVHCollision(bvhIndices);
                 std::cout << "collision triangle number = " << counter << std::endl;
 
-                checkedCollision = true;
+                checkedBVHCollision = true;
             }
-            
-            cloth.drawCollision();
+
+            cloth.drawBVHCollision();
         }
 
         // glfw: swap buffers and poll IO events (keys pressed/released, mouse moved etc.)
@@ -325,9 +345,20 @@ void processInput(GLFWwindow* window)
         camera.ProcessKeyboard(RIGHT, deltaTime);
 
     if (glfwGetKey(window, GLFW_KEY_1) == GLFW_PRESS)
-        displayCollision = false;
+    {
+        displayNaiveCollision = false;
+        displayBVHCollision = false;
+    }
     if (glfwGetKey(window, GLFW_KEY_2) == GLFW_PRESS)
-        displayCollision = true;
+    {
+        displayNaiveCollision = true;
+        displayBVHCollision = false;
+    }
+    if (glfwGetKey(window, GLFW_KEY_3) == GLFW_PRESS)
+    {
+        displayNaiveCollision = false;
+        displayBVHCollision = true;
+    }
 }
 
 // glfw: whenever the window size changed (by OS or user resize) this callback function executes
@@ -464,7 +495,6 @@ __global__ void kernel(const float* vertices, const unsigned int* indices, const
 
             if (collide(p0, p1, p2, q0, q1, q2))
             {
-                // printf("Collision happened! i = %u j = %u\n", i, j);
                 atomicAdd(&flags[i], 1);
                 atomicAdd(&flags[j], 1);
             }

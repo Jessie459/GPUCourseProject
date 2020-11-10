@@ -12,15 +12,26 @@ public:
         initialize();
     }
 
-    void setCollision(const std::vector<unsigned int>& indices)
+    void setNaiveCollision(const std::vector<unsigned int>& indices)
     {
         if (indices.size() == 0)
             return;
-        collideIndices = indices;
+        naiveIndices = indices;
 
-        glGenBuffers(1, &collideEBO);
-        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, collideEBO);
-        glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(unsigned int) * collideIndices.size(), &collideIndices[0], GL_STATIC_DRAW);
+        glGenBuffers(1, &naiveEBO);
+        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, naiveEBO);
+        glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(unsigned int) * indices.size(), &indices[0], GL_STATIC_DRAW);
+    }
+
+    void setBVHCollision(const std::vector<unsigned int>& indices)
+    {
+        if (indices.size() == 0)
+            return;
+        bvhIndices = indices;
+
+        glGenBuffers(1, &bvhEBO);
+        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, bvhEBO);
+        glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(unsigned int) * indices.size(), &indices[0], GL_STATIC_DRAW);
     }
 
     void draw()
@@ -30,25 +41,37 @@ public:
         glDrawElements(GL_TRIANGLES, indices.size(), GL_UNSIGNED_INT, 0);
     }
 
-    void drawCollision()
+    void drawNaiveCollision()
     {
-        if (collideIndices.size() == 0)
+        if (naiveIndices.size() == 0)
             return;
 
         glBindVertexArray(VAO);
-        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, collideEBO);
-        glDrawElements(GL_TRIANGLES, collideIndices.size(), GL_UNSIGNED_INT, 0);
+        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, naiveEBO);
+        glDrawElements(GL_TRIANGLES, naiveIndices.size(), GL_UNSIGNED_INT, 0);
+    }
+
+    void drawBVHCollision()
+    {
+        if (bvhIndices.size() == 0)
+            return;
+
+        glBindVertexArray(VAO);
+        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, bvhEBO);
+        glDrawElements(GL_TRIANGLES, bvhIndices.size(), GL_UNSIGNED_INT, 0);
     }
 
 private:
     std::vector<float> vertices;
     std::vector<unsigned int> indices;
-    std::vector<unsigned int> collideIndices;
+    std::vector<unsigned int> naiveIndices;
+    std::vector<unsigned int> bvhIndices;
 
     unsigned int VAO;
     unsigned int VBO;
     unsigned int EBO;
-    unsigned int collideEBO;
+    unsigned int naiveEBO;
+    unsigned int bvhEBO;
 
     void initialize()
     {
