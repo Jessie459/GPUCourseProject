@@ -20,10 +20,10 @@
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
-    <None Include="src\shaders\model.fs">
+    <None Include="src\shaders\shader.fs">
       <Filter>着色器文件</Filter>
     </None>
-    <None Include="src\shaders\model.vs">
+    <None Include="src\shaders\shader.vs">
       <Filter>着色器文件</Filter>
     </None>
   </ItemGroup>
@@ -54,11 +54,11 @@
     <CudaCompile Include="src\aabb.h">
       <Filter>头文件</Filter>
     </CudaCompile>
-    <CudaCompile Include="src\morton_code.h">
-      <Filter>头文件</Filter>
-    </CudaCompile>
     <CudaCompile Include="src\bvh.cpp">
       <Filter>源文件</Filter>
+    </CudaCompile>
+    <CudaCompile Include="src\morton.h">
+      <Filter>头文件</Filter>
     </CudaCompile>
   </ItemGroup>
 </Project>

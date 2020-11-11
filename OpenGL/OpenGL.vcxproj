@@ -22,12 +22,12 @@
     <ClCompile Include="src\glad.c" />
     <CudaCompile Include="src\aabb.h" />
     <CudaCompile Include="src\bvh.cpp" />
-    <CudaCompile Include="src\morton_code.h" />
+    <CudaCompile Include="src\morton.h" />
     <CudaCompile Include="src\viewer.cpp" />
   </ItemGroup>
   <ItemGroup>
-    <None Include="src\shaders\model.fs" />
-    <None Include="src\shaders\model.vs" />
+    <None Include="src\shaders\shader.fs" />
+    <None Include="src\shaders\shader.vs" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="src\bvh.h" />

@@ -11,7 +11,7 @@
 #include <thrust/execution_policy.h>
 #include <climits>
 
-#include "morton_code.h"
+#include "morton.h"
 #include "triangle.h"
 
 struct node

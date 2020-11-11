@@ -12,14 +12,25 @@ public:
         initialize();
     }
 
-    void setNaiveCollision(const std::vector<unsigned int>& indices)
+    void setCPUCollision(const std::vector<unsigned int>& indices)
     {
         if (indices.size() == 0)
             return;
-        naiveIndices = indices;
+        cpuIndices = indices;
 
-        glGenBuffers(1, &naiveEBO);
-        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, naiveEBO);
+        glGenBuffers(1, &cpuEBO);
+        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, cpuEBO);
+        glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(unsigned int) * indices.size(), &indices[0], GL_STATIC_DRAW);
+    }
+
+    void setGPUCollision(const std::vector<unsigned int>& indices)
+    {
+        if (indices.size() == 0)
+            return;
+        gpuIndices = indices;
+
+        glGenBuffers(1, &gpuEBO);
+        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, gpuEBO);
         glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(unsigned int) * indices.size(), &indices[0], GL_STATIC_DRAW);
     }
 
@@ -41,14 +52,24 @@ public:
         glDrawElements(GL_TRIANGLES, indices.size(), GL_UNSIGNED_INT, 0);
     }
 
-    void drawNaiveCollision()
+    void drawCPUCollision()
     {
-        if (naiveIndices.size() == 0)
+        if (cpuIndices.size() == 0)
             return;
 
         glBindVertexArray(VAO);
-        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, naiveEBO);
-        glDrawElements(GL_TRIANGLES, naiveIndices.size(), GL_UNSIGNED_INT, 0);
+        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, cpuEBO);
+        glDrawElements(GL_TRIANGLES, cpuIndices.size(), GL_UNSIGNED_INT, 0);
+    }
+
+    void drawGPUCollision()
+    {
+        if (gpuIndices.size() == 0)
+            return;
+
+        glBindVertexArray(VAO);
+        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, gpuEBO);
+        glDrawElements(GL_TRIANGLES, gpuIndices.size(), GL_UNSIGNED_INT, 0);
     }
 
     void drawBVHCollision()
@@ -64,13 +85,15 @@ public:
 private:
     std::vector<float> vertices;
     std::vector<unsigned int> indices;
-    std::vector<unsigned int> naiveIndices;
+    std::vector<unsigned int> cpuIndices;
+    std::vector<unsigned int> gpuIndices;
     std::vector<unsigned int> bvhIndices;
 
     unsigned int VAO;
     unsigned int VBO;
     unsigned int EBO;
-    unsigned int naiveEBO;
+    unsigned int cpuEBO;
+    unsigned int gpuEBO;
     unsigned int bvhEBO;
 
     void initialize()

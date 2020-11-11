@@ -9,9 +9,7 @@
 #include <vector>
 #include <set>
 #include <cmath>
-
-#include  <stdio.h>
-#include <direct.h>
+#include <ctime>
 
 #include "vec3f.h"
 #include "bvh.h"
@@ -27,13 +25,16 @@ void scroll_callback(GLFWwindow* window, double xoffset, double yoffset);
 void processInput(GLFWwindow* window);
 
 // settings
-const unsigned int SCR_WIDTH = 800;
-const unsigned int SCR_HEIGHT = 600;
+const unsigned int SCR_WIDTH = 1080;
+const unsigned int SCR_HEIGHT = 720;
 
+bool displayCPUCollision = false;
+bool displayGPUCollision = false;
 bool displayBVHCollision = false;
+
+bool checkedCPUCollision = false;
+bool checkedGPUCollision = false;
 bool checkedBVHCollision = false;
-bool displayNaiveCollision = false;
-bool checkedNaiveCollision = false;
 
 float deltaTime = 0.0f;
 float lastFrame = 0.0f;
@@ -55,7 +56,8 @@ int main(int argc, char** argv)
 
     std::vector<float> vertices;
     std::vector<unsigned int> indices;
-    std::vector<unsigned int> naiveIndices;
+    std::vector<unsigned int> cpuIndices;
+    std::vector<unsigned int> gpuIndices;
     std::vector<unsigned int> bvhIndices;
 
     // read triangles from obj file
@@ -65,67 +67,7 @@ int main(int argc, char** argv)
         std::cout << "Failed to read obj file" << std::endl;
         return -1;
     }
-    std::cout << "triangle number = " << indices.size() / 3 << std::endl;
-
-    // collision detection on GPU
-    // --------------------------
-    
-
-    // collision detection on CPU
-    // --------------------------
-    /*std::set<unsigned int> s;
-    unsigned int count = 0;
-
-    #pragma omp parallel for
-    for (int i = 0; i < numTriangles; i++)
-    {
-        unsigned int i0 = indices[i * 3];
-        unsigned int i1 = indices[i * 3 + 1];
-        unsigned int i2 = indices[i * 3 + 2];
-
-        vec3f p0(vertices[i0 * 3], vertices[i0 * 3 + 1], vertices[i0 * 3 + 2]);
-        vec3f p1(vertices[i1 * 3], vertices[i1 * 3 + 1], vertices[i1 * 3 + 2]);
-        vec3f p2(vertices[i2 * 3], vertices[i2 * 3 + 1], vertices[i2 * 3 + 2]);
-
-        for (int j = 0; j < numTriangles; j++)
-        {
-            if (i >= j)
-                continue;
-
-            unsigned int j0 = indices[j * 3];
-            unsigned int j1 = indices[j * 3 + 1];
-            unsigned int j2 = indices[j * 3 + 2];
-
-            if (i0 == j0 || i0 == j1 || i0 == j2)
-                continue;
-            if (i1 == j0 || i1 == j1 || i1 == j2)
-                continue;
-            if (i2 == j0 || i2 == j1 || i2 == j2)
-                continue;
-
-            vec3f q0(vertices[j0 * 3], vertices[j0 * 3 + 1], vertices[j0 * 3 + 2]);
-            vec3f q1(vertices[j1 * 3], vertices[j1 * 3 + 1], vertices[j1 * 3 + 2]);
-            vec3f q2(vertices[j2 * 3], vertices[j2 * 3 + 1], vertices[j2 * 3 + 2]);
-
-            if (collide(p0, p1, p2, q0, q1, q2))
-            {
-                s.insert(i);
-                s.insert(j);
-                ++count;
-            }
-        }
-    }
-    std::cout << count << std::endl;
-
-    std::vector<unsigned int> indices2(s.size() * 3);
-    unsigned int idx = 0;
-    for (auto iter = s.begin(); iter != s.end(); iter++)
-    {
-        indices2[idx * 3 + 0] = indices[(*iter) * 3 + 0];
-        indices2[idx * 3 + 1] = indices[(*iter) * 3 + 1];
-        indices2[idx * 3 + 2] = indices[(*iter) * 3 + 2];
-        ++idx;
-    }*/
+    std::cout << "triangle number = " << indices.size() / 3 << std::endl;    
 
     // glfw: initialize and configure
     // ------------------------------
@@ -149,7 +91,7 @@ int main(int argc, char** argv)
     glfwSetScrollCallback(window, scroll_callback);
 
     // tell GLFW to capture our mouse
-    // glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
+    glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
 
     // glad: load all OpenGL function pointers
     // ---------------------------------------
@@ -167,7 +109,7 @@ int main(int argc, char** argv)
 
     // build and compile shaders
     // -------------------------
-    Shader shader("./src/shaders/model.vs", "./src/shaders/model.fs");
+    Shader shader("./src/shaders/shader.vs", "./src/shaders/shader.fs");
 
     // load cloth model
     // ----------------
@@ -200,14 +142,84 @@ int main(int argc, char** argv)
         shader.setMat4("view", view);
         shader.setMat4("model", model);
 
-        if (displayNaiveCollision == false && displayBVHCollision == false)
+        if (!displayCPUCollision && !displayGPUCollision && !displayBVHCollision)
         {
+            // draw original cloth
             cloth.draw();
         }
-        else if (displayNaiveCollision == true)
+        else if (displayCPUCollision)
         {
-            if (checkedNaiveCollision == false)
+            if (!checkedCPUCollision)
             {
+                // collision detection using cpu method
+                unsigned int numTriangles = indices.size() / 3;
+                std::set<unsigned int> s;
+
+                std::cout << "\ncollision detection using cpu method..." << std::endl;
+                clock_t start = clock();
+                #pragma omp parallel for
+                for (int i = 0; i < numTriangles; i++)
+                {
+                    unsigned int i0 = indices[i * 3];
+                    unsigned int i1 = indices[i * 3 + 1];
+                    unsigned int i2 = indices[i * 3 + 2];
+
+                    vec3f p0(vertices[i0 * 3], vertices[i0 * 3 + 1], vertices[i0 * 3 + 2]);
+                    vec3f p1(vertices[i1 * 3], vertices[i1 * 3 + 1], vertices[i1 * 3 + 2]);
+                    vec3f p2(vertices[i2 * 3], vertices[i2 * 3 + 1], vertices[i2 * 3 + 2]);
+
+                    for (int j = 0; j < numTriangles; j++)
+                    {
+                        if (i >= j)
+                            continue;
+
+                        unsigned int j0 = indices[j * 3];
+                        unsigned int j1 = indices[j * 3 + 1];
+                        unsigned int j2 = indices[j * 3 + 2];
+
+                        if (i0 == j0 || i0 == j1 || i0 == j2)
+                            continue;
+                        if (i1 == j0 || i1 == j1 || i1 == j2)
+                            continue;
+                        if (i2 == j0 || i2 == j1 || i2 == j2)
+                            continue;
+
+                        vec3f q0(vertices[j0 * 3], vertices[j0 * 3 + 1], vertices[j0 * 3 + 2]);
+                        vec3f q1(vertices[j1 * 3], vertices[j1 * 3 + 1], vertices[j1 * 3 + 2]);
+                        vec3f q2(vertices[j2 * 3], vertices[j2 * 3 + 1], vertices[j2 * 3 + 2]);
+
+                        if (collide(p0, p1, p2, q0, q1, q2))
+                        {
+                            s.insert(i);
+                            s.insert(j);
+                        }
+                    }
+                }
+                float elapsedTime = (float)(clock() - start);
+                std::cout << "elapsed time: " << elapsedTime / 1000.0f << " seconds" << std::endl;
+                std::cout << "collision detection using cpu method done" << std::endl;
+
+                unsigned int counter = 0;
+                for (auto iter = s.begin(); iter != s.end(); iter++)
+                {
+                    cpuIndices.push_back(indices[(*iter) * 3]);
+                    cpuIndices.push_back(indices[(*iter) * 3 + 1]);
+                    cpuIndices.push_back(indices[(*iter) * 3 + 2]);
+                    ++counter;
+                }
+                cloth.setCPUCollision(cpuIndices);
+                std::cout << "collision triangle number = " << counter << std::endl;
+
+                checkedCPUCollision = true;
+            }
+
+            cloth.drawCPUCollision();
+        }
+        else if (displayGPUCollision)
+        {
+            if (!checkedGPUCollision)
+            {
+                // collision detection using gpu method
                 unsigned int numTriangles = indices.size() / 3;
 
                 float* d_vertices;
@@ -230,14 +242,14 @@ int main(int argc, char** argv)
                 cudaEventCreate(&start);
                 cudaEventCreate(&stop);
 
-                std::cout << "\ncollision detection using naive method..." << std::endl;
+                std::cout << "\ncollision detection using gpu method..." << std::endl;
                 cudaEventRecord(start, 0);
                 kernel<<<GRID_SIZE, BLOCK_SIZE>>>(d_vertices, d_indices, numTriangles, d_flags);
                 cudaEventRecord(stop, 0);
                 cudaEventSynchronize(stop);
                 cudaEventElapsedTime(&elapsedTime, start, stop);
                 std::cout << "elapsed time: " << elapsedTime / 1000.0f << " seconds" << std::endl;
-                std::cout << "collision detection using naive method done" << std::endl;
+                std::cout << "collision detection using gpu method done" << std::endl;
 
                 std::vector<unsigned int> flags(numTriangles);
                 cudaMemcpy(&flags[0], d_flags, sizeof(unsigned int) * numTriangles, cudaMemcpyDeviceToHost);
@@ -247,28 +259,29 @@ int main(int argc, char** argv)
                 {
                     if (flags[i] > 0)
                     {
-                        naiveIndices.push_back(indices[i * 3]);
-                        naiveIndices.push_back(indices[i * 3 + 1]);
-                        naiveIndices.push_back(indices[i * 3 + 2]);
+                        gpuIndices.push_back(indices[i * 3]);
+                        gpuIndices.push_back(indices[i * 3 + 1]);
+                        gpuIndices.push_back(indices[i * 3 + 2]);
                         ++counter;
                     }
                 }
-                cloth.setNaiveCollision(naiveIndices);
+                cloth.setGPUCollision(gpuIndices);
                 std::cout << "collision triangle number = " << counter << std::endl;
 
                 cudaFree(d_vertices);
                 cudaFree(d_indices);
                 cudaFree(d_flags);
 
-                checkedNaiveCollision = true;
+                checkedGPUCollision = true;
             }
 
-            cloth.drawNaiveCollision();
+            cloth.drawGPUCollision();
         }
-        else if (displayBVHCollision == true)
+        else if (displayBVHCollision)
         {
-            if (checkedBVHCollision == false)
+            if (!checkedBVHCollision)
             {
+                // collision detection using bvh method
                 cudaEvent_t start, stop;
                 float elapsedTime;
                 cudaEventCreate(&start);
@@ -346,18 +359,36 @@ void processInput(GLFWwindow* window)
 
     if (glfwGetKey(window, GLFW_KEY_1) == GLFW_PRESS)
     {
-        displayNaiveCollision = false;
+        displayCPUCollision = false;
+        displayGPUCollision = false;
         displayBVHCollision = false;
     }
     if (glfwGetKey(window, GLFW_KEY_2) == GLFW_PRESS)
     {
-        displayNaiveCollision = true;
+        displayCPUCollision = true;
+        displayGPUCollision = false;
         displayBVHCollision = false;
     }
     if (glfwGetKey(window, GLFW_KEY_3) == GLFW_PRESS)
     {
-        displayNaiveCollision = false;
+        displayCPUCollision = false;
+        displayGPUCollision = true;
+        displayBVHCollision = false;
+    }
+    if (glfwGetKey(window, GLFW_KEY_4) == GLFW_PRESS)
+    {
+        displayCPUCollision = false;
+        displayGPUCollision = false;
         displayBVHCollision = true;
+    }
+
+    if (glfwGetKey(window, GLFW_KEY_C) == GLFW_PRESS)
+    {
+        glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
+    }
+    if (glfwGetKey(window, GLFW_KEY_H) == GLFW_PRESS)
+    {
+        glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
     }
 }
 
@@ -405,7 +436,7 @@ bool readObjFile(const char* path, std::vector<float>& vertices, std::vector<uns
     char buffer[1024];
     while (fgets(buffer, 1024, stream))
     {
-        if (buffer[0] == 'v' && buffer[1] == ' ') // vertices
+        if (buffer[0] == 'v' && buffer[1] == ' ')       // vertices
         {
             float x, y, z;
             sscanf_s(buffer + 2, "%f%f%f", &x, &y, &z);
@@ -413,7 +444,7 @@ bool readObjFile(const char* path, std::vector<float>& vertices, std::vector<uns
             vertices.push_back(y);
             vertices.push_back(z);
         }
-        else if (buffer[0] == 'f' && buffer[1] == ' ') // faces
+        else if (buffer[0] == 'f' && buffer[1] == ' ')  // faces
         {
             unsigned int idx0, idx1, idx2, idx3;
             bool quad = false;
