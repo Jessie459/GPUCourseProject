@@ -350,13 +350,13 @@ while (stack is not empty) {
 
 1. 运行环境
 
-<img src="images/cpu_ram.jpg" alt="cpu and ram info" height=30 />
+<img src="images/cpu_ram.jpg" alt="cpu and ram info" height=30 /><br>
 
 <img src="images/device.jpg" alt="device info" width=700 />
 
 2. 运行结果统计
 
-<img src="images/result.jpg" alt="console result" width=350 />
+<img src="images/result.jpg" alt="console result" width=350 /><br>
 
 <img src="images/chart.jpg" alt="chart result" width=350 />
 
