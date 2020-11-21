@@ -2,7 +2,7 @@
 
 ## （一）作业概述
 
-<img src="images/origin.jpg" alt="origin cloth" width=300 />
+<img src="images/origin.jpg" alt="origin cloth" width=400 />
 
 课程作业要求实现对布料进行自碰撞检测。
 本文将介绍两种碰撞检测方法。
@@ -352,13 +352,13 @@ while (stack is not empty) {
 
 <img src="images/cpu_ram.jpg" alt="cpu and ram info" height=30 />
 
-<img src="images/device.jpg" alt="device info" width=800 />
+<img src="images/device.jpg" alt="device info" width=700 />
 
 2. 运行结果统计
 
-<img src="images/result.jpg" alt="console result" width=300 />
+<img src="images/result.jpg" alt="console result" width=350 />
 
-<img src="images/chart.jpg" alt="chart result" width=300 />
+<img src="images/chart.jpg" alt="chart result" width=350 />
 
 3. 运行结果展示
 
